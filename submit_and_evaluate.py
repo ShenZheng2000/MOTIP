@@ -141,7 +141,8 @@ def submit_and_evaluate_one_model(
     inference_dataset = dataset_classes[dataset](
         data_root=data_root,
         split=data_split,
-        load_annotation=False,
+        # load_annotation=False,
+        load_annotation=True,   # NOTE: add gt annotations
     )
     # Set the dtype during inference:
     match dtype:
@@ -179,6 +180,7 @@ def submit_and_evaluate_one_model(
         sequence_dataset = SeqDataset(
             seq_info=inference_dataset.sequence_infos[sequence_name],
             image_paths=inference_dataset.image_paths[sequence_name],
+            annotations=inference_dataset.annotations[sequence_name],   # NOTE: add gt annotations
             max_shorter=image_max_shorter,
             max_longer=image_max_longer,
             size_divisibility=size_divisibility,

@@ -10,6 +10,10 @@ from models.motip.id_decoder import IDDecoder
 def build(config: dict):
     # Generate DETR args:
     detr_args = Args()
+
+    # NOTE: warping-related code
+    detr_args.warp_test = config.get("WARP_TEST", False)
+
     # 1. backbone:
     detr_args.backbone = config["BACKBONE"]
     detr_args.lr_backbone = config["LR"] * config["LR_BACKBONE_SCALE"]

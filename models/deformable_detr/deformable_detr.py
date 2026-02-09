@@ -30,7 +30,9 @@ from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
 from .deformable_transformer import build_deforamble_transformer
 import copy
-
+from torchvision.utils import save_image
+import os
+from warp_utils.warp_pipeline import apply_forward_warp, apply_unwarp
 
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
@@ -39,7 +41,8 @@ def _get_clones(module, N):
 class DeformableDETR(nn.Module):
     """ This is the Deformable DETR module that performs object detection """
     def __init__(self, backbone, transformer, num_classes, num_queries, num_feature_levels,
-                 aux_loss=True, with_box_refine=False, two_stage=False):
+                 aux_loss=True, with_box_refine=False, two_stage=False,
+                 warp_test=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -52,6 +55,9 @@ class DeformableDETR(nn.Module):
             two_stage: two-stage Deformable DETR
         """
         super().__init__()
+
+        self.warp_test = warp_test # NOTE: init warp_test here
+
         self.num_queries = num_queries
         self.transformer = transformer
         hidden_dim = transformer.d_model
@@ -132,7 +138,71 @@ class DeformableDETR(nn.Module):
         """
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples)
+
+        # # ================= DEBUG: backbone input =================
+        # print("\n[DEBUG][DeformableDETR] backbone INPUT")
+        # print("  samples.tensors shape:", samples.tensors.shape)                                          # torch.Size([1, 3, 800, 1422])
+        # print("  samples.mask   shape:", samples.mask.shape)                                              # torch.Size([1, 800, 1422])
+        # print("  samples.tensors dtype:", samples.tensors.dtype)                                          # torch.float32
+        # print("  samples.mask   dtype:", samples.mask.dtype)                                              # dtype: torch.bool
+        # print("  samples.tensors min/max:", samples.tensors.min().item(), samples.tensors.max().item())   # -2.1179039478302 2.3760507106781006
+        # print("  samples.mask unique values:", samples.mask.unique())                                     # tensor([False], device='cuda:0')
+        if samples.mask.any():
+            raise RuntimeError("Padding detected in samples.mask — expected all False")
+
+        warp_grid = None
+        gt = getattr(samples, "gt", None)
+        if self.warp_test and gt is not None and "bbox" in gt:
+            warped, warp_grid = apply_forward_warp(
+                                                image_tensor=samples.tensors,     # [B,3,H,W]
+                                                bbox_tensor=gt["bbox"],           # [N,4] (x1,y1,x2,y2)
+                                                bw=128,
+                                                )
+
+            # # DEBUG: check shape of warped image and warped grid
+            # warped_unwarped = apply_unwarp(warp_grid=warp_grid, warped_output=warped)
+            # print("[DEBUG][DeformableDETR] GT bbox for forward warp:", gt["bbox"])  # Debug print GT bbox before forward warp
+            # print("[DEBUG][DeformableDETR] warped image shape:", warped.shape)  # Debug print warped image shape (B,3,H,W)
+            # print("[DEBUG][DeformableDETR] warp_grid shape:", warp_grid.shape)  # Debug print warp grid shape (B,H,W,2)
+            # print("[DEBUG][DeformableDETR] warped image min/max:", warped.min().item(), warped.max().item())  # Debug print warped image value range
+            # # DEBUG: save warped image for debugging
+            # save_image(samples.tensors[0], "debug/input_image.png", normalize=True)
+            # save_image(warped[0], "debug/warped_image.png", normalize=True)
+            # save_image(warped_unwarped[0], "debug/warped_unwarped_image.png", normalize=True)
+
+            # NOTE: update samples.tensors with the warped image
+            samples.tensors = warped
+
+
         features, pos = self.backbone(samples)
+
+
+        # # DEBUG: save feature maps for debugging
+        # feat0_before = features[0].tensors[0].mean(dim=0, keepdim=True)  # [1, H, W]
+        # save_image(feat0_before, "debug/BEFORE_feature_level_0.png", normalize=True)
+
+        if self.warp_test and warp_grid is not None:
+            for (i, feat) in enumerate(features):
+                unwarped = apply_unwarp(
+                                        warp_grid=warp_grid, 
+                                        warped_output=feat.tensors
+                                        )
+                # NOTE: update feat.tensors with the unwarped feature map
+                feat.tensors = unwarped
+
+        # # DEBUG: backbone output
+        # print("[DEBUG][DeformableDETR] backbone OUTPUT")
+        # print("  Number of feature levels:", len(features))
+        # for i, feat in enumerate(features):
+        #     print(f"  features[{i}].tensors shape:", feat.tensors.shape) # torch.Size([1, 512, 100, 178]) -> torch.Size([1, 1024, 50, 89]) -> torch.Size([1, 2048, 25, 45])
+        #     print(f"  features[{i}].mask   shape:", feat.mask.shape) # torch.Size([1, 100, 178]) -> torch.Size([1, 50, 89]) -> torch.Size([1, 25, 45])
+        # # DEBUG: save feature maps for debugging
+        # feat0_after = features[0].tensors[0].mean(dim=0, keepdim=True)  # [1, H, W]
+        # save_image(feat0_after, "debug/AFTER_feature_level_0.png", normalize=True)
+
+        # # # ================= exit for quick debug =================
+        # exit()
+
 
         srcs = []
         masks = []
@@ -509,6 +579,7 @@ def build(args):
         aux_loss=args.aux_loss,
         with_box_refine=args.with_box_refine,
         two_stage=args.two_stage,
+        warp_test=args.warp_test, # NOTE: add warp_test here.
     )
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
