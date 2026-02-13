@@ -216,7 +216,13 @@ def crop_to_foreground(input_path):
 # ===============================================================
 # ✅ Forward warp (returns warped tensor + warp grid)
 # ===============================================================
-def apply_forward_warp(image_tensor, bbox_tensor, bw, separable=True, output_shape=None):
+def apply_forward_warp(image_tensor,
+                        bbox_tensor,
+                        bw,
+                        separable=True,
+                        output_shape=None,
+                        return_saliency=False,
+                        warp_smooth_alpha=0.0):   # 0.0 = no smoothing
     """
     Applies KDE-based forward warp around bbox region.
     Returns (warped_tensor, warp_grid).
@@ -232,16 +238,38 @@ def apply_forward_warp(image_tensor, bbox_tensor, bw, separable=True, output_sha
     else:
         out_H, out_W = output_shape
 
-    grid_net = PlainKDEGrid(
-        input_shape=(H, W),
-        output_shape=(out_H, out_W),   # <--- FIXED HERE
-        separable=separable,
-        bandwidth_scale=bw,
-        amplitude_scale=1.0,
-    ).to(device)
-    warp_grid = grid_net(image_tensor, gt_bboxes=bbox_tensor.unsqueeze(0))
+    # ✅ cache grid_net so self._sal_prev persists across frames
+    global _PLAIN_KDEGRID_CACHE
+    key = (H, W, out_H, out_W, separable, bw,
+           return_saliency, float(warp_smooth_alpha), device.type)
+
+    if "_PLAIN_KDEGRID_CACHE" not in globals() or _PLAIN_KDEGRID_CACHE[0] != key:
+        grid_net = PlainKDEGrid(
+            input_shape=(H, W),
+            output_shape=(out_H, out_W),
+            separable=separable,
+            bandwidth_scale=bw,
+            amplitude_scale=1.0,
+            return_saliency=return_saliency,
+            warp_smooth_alpha=warp_smooth_alpha,
+        ).to(device)
+        _PLAIN_KDEGRID_CACHE = (key, grid_net)
+    else:
+        grid_net = _PLAIN_KDEGRID_CACHE[1]
+
+    warp_outputs = grid_net(image_tensor, gt_bboxes=bbox_tensor.unsqueeze(0))
+
+    if return_saliency:
+        warp_grid, saliency = warp_outputs
+    else:
+        warp_grid = warp_outputs
+
     warped = warp(warp_grid, image_tensor)
-    return warped, warp_grid
+
+    if return_saliency:
+        return warped, warp_grid, saliency
+    else:
+        return warped, warp_grid
 
 # ===============================================================
 # ✅ Unwarp (returns restored tensor)

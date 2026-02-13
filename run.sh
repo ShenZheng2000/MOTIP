@@ -11,35 +11,10 @@ INF_DATA=DanceTrack
 
 ulimit -n 65535
 
-# evaluate + val (8 gpus)
-# accelerate launch \
-#     --config_file $ACC_CONFIG \
-#     submit_and_evaluate.py \
-#     --data-root $DATA_ROOT \
-#     --inference-mode evaluate \
-#     --config-path ./configs/r50_deformable_detr_motip_dancetrack.yaml \
-#     --inference-model ./checkpoints/r50_deformable_detr_motip_dancetrack/r50_deformable_detr_motip_dancetrack.pth \
-#     --outputs-dir ./checkpoints/r50_deformable_detr_motip_dancetrack/ \
-#     --inference-dataset $INF_DATA \
-#     --inference-split val
-
-# # # evaluate + val (1 gpu for debug): $ACC_CONFIG_DEBUG
-
-# # training (8 gpus)
-# accelerate launch \
-#     --config_file $ACC_CONFIG \
-#     train.py \
-#     --data-root $DATA_ROOT \
-#     --exp-name r50_deformable_detr_motip_dancetrack \
-#     --config-path ./configs/r50_deformable_detr_motip_dancetrack.yaml
-
-
-# # training (8 gpus): train & test using gt bbox to warp!
+# # # training (8 gpus): train & test using gt bbox to warp!
 accelerate launch \
     --config_file $ACC_CONFIG \
     train.py \
     --data-root $DATA_ROOT \
-    --exp-name r50_deformable_detr_motip_dancetrack_warp_test \
-    --config-path ./configs/r50_deformable_detr_motip_dancetrack_warp_test.yaml
-
-# TODO: write better train and test scripts (otherwise messy path for outputs/checkpoints)
+    --exp-name r50_deformable_detr_motip_dancetrack_warp_test_alpha03 \
+    --config-path ./configs/r50_deformable_detr_motip_dancetrack_warp_test_alpha03.yaml

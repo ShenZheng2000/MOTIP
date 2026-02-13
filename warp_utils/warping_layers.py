@@ -170,6 +170,10 @@ class PlainKDEGrid(nn.Module, RecasensSaliencyToGridMixin):
         self.amplitude_scale = amplitude_scale
         self.input_shape = kwargs.get('input_shape', (1080, 1920))
 
+        self.return_saliency = kwargs.get("return_saliency", False)
+        self.warp_smooth_alpha = kwargs.get("warp_smooth_alpha", 0.0)   # 0.0 = no smoothing
+        self._sal_prev = None
+
     def bbox2sal(self, batch_bboxes, imgs, jitter=None):
         device = batch_bboxes[0].device
         h_out, w_out = self.grid_shape
@@ -219,6 +223,25 @@ class PlainKDEGrid(nn.Module, RecasensSaliencyToGridMixin):
             sals.append(sal)
         return torch.stack(sals)
 
+
+    def _smooth_saliency(self, saliency):
+        if self.warp_smooth_alpha <= 0:
+            return saliency
+
+        prev = self._sal_prev
+        if prev is None:
+            sal_smooth = saliency
+        else:
+            sal_smooth = self.warp_smooth_alpha * saliency + (1 - self.warp_smooth_alpha) * prev
+
+        sal_smooth = sal_smooth / (
+            sal_smooth.sum(dim=(-2, -1), keepdim=True) + 1e-6
+        )
+
+        self._sal_prev = sal_smooth.detach()
+        return sal_smooth
+
+
     def forward(self, imgs, gt_bboxes, jitter=False, **kwargs):
         vis_options = kwargs.get('vis_options', {})
 
@@ -232,6 +255,9 @@ class PlainKDEGrid(nn.Module, RecasensSaliencyToGridMixin):
         device = batch_bboxes[0].device
         saliency = self.bbox2sal(batch_bboxes, imgs, jitter)
 
+        # NOTE: add smooth saliency
+        saliency = self._smooth_saliency(saliency)
+
         if self.separable:
             x_saliency = saliency.sum(dim=2)
             y_saliency = saliency.sum(dim=3)
@@ -241,7 +267,10 @@ class PlainKDEGrid(nn.Module, RecasensSaliencyToGridMixin):
             grid = self.nonseparable_saliency_to_grid(imgs,
                                                       saliency, device)
 
-        return grid
+        if self.return_saliency:
+            return grid, saliency
+        else:
+            return grid
 
 
 def invert_grid(grid, input_shape, separable=False):

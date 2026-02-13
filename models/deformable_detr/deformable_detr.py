@@ -32,7 +32,9 @@ from .deformable_transformer import build_deforamble_transformer
 import copy
 from torchvision.utils import save_image
 import os
-from warp_utils.warp_pipeline import apply_forward_warp, apply_unwarp
+from warp_utils.warp_pipeline import apply_forward_warp, apply_unwarp, warp
+from PIL import Image
+from torchvision import transforms
 
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
@@ -42,7 +44,8 @@ class DeformableDETR(nn.Module):
     """ This is the Deformable DETR module that performs object detection """
     def __init__(self, backbone, transformer, num_classes, num_queries, num_feature_levels,
                  aux_loss=True, with_box_refine=False, two_stage=False,
-                 warp_test=False):
+                 warp_test=False, 
+                 warp_smooth_alpha=0.0):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -56,7 +59,14 @@ class DeformableDETR(nn.Module):
         """
         super().__init__()
 
-        self.warp_test = warp_test # NOTE: init warp_test here
+        self.warp_test = warp_test
+        self.warp_smooth_alpha = warp_smooth_alpha
+
+        # # DEBUG: save warped image for debugging
+        # self._warp_save_i = 0
+        # self._warp_save_max = 2402   # hardcode max frames to save
+        # os.makedirs("debug/warped_seq", exist_ok=True)
+        # os.makedirs("debug/warped_seq_grid", exist_ok=True)
 
         self.num_queries = num_queries
         self.transformer = transformer
@@ -157,6 +167,7 @@ class DeformableDETR(nn.Module):
                                                 image_tensor=samples.tensors,     # [B,3,H,W]
                                                 bbox_tensor=gt["bbox"],           # [N,4] (x1,y1,x2,y2)
                                                 bw=128,
+                                                warp_smooth_alpha=self.warp_smooth_alpha,
                                                 )
 
             # # DEBUG: check shape of warped image and warped grid
@@ -174,12 +185,40 @@ class DeformableDETR(nn.Module):
             samples.tensors = warped
 
 
+            # # DEBUG: save warped image for debugging
+            # if self._warp_save_i < self._warp_save_max:
+                
+            #     save_image(
+            #         warped[0],
+            #         f"debug/warped_seq/{self._warp_save_i:06d}.jpg",
+            #         normalize=True
+            #     )
+
+            #     grid_pil = Image.open("debug/grid.png").convert("RGB")
+            #     grid_pil = grid_pil.resize((warped.shape[-1], warped.shape[-2]), Image.BILINEAR)  # (W,H)
+            #     grid_tensor = transforms.ToTensor()(grid_pil).unsqueeze(0).to(warped.device)      # [1,3,H,W]
+            #     warped_grid = warp(warp_grid, grid_tensor)
+            #     save_image(
+            #         warped_grid[0],
+            #         f"debug/warped_seq_grid/{self._warp_save_i:06d}.jpg",
+            #         normalize=False
+            #     )
+
+            #     self._warp_save_i += 1
+            # else:
+            #     exit()
+
+
         features, pos = self.backbone(samples)
 
 
         # # DEBUG: save feature maps for debugging
         # feat0_before = features[0].tensors[0].mean(dim=0, keepdim=True)  # [1, H, W]
         # save_image(feat0_before, "debug/BEFORE_feature_level_0.png", normalize=True)
+        # feat1_before = features[1].tensors[0].mean(dim=0, keepdim=True)  # [1, H, W]
+        # save_image(feat1_before, "debug/BEFORE_feature_level_1.png", normalize=True)
+        # feat2_before = features[2].tensors[0].mean(dim=0, keepdim=True)  # [1, H, W]
+        # save_image(feat2_before, "debug/BEFORE_feature_level_2.png", normalize=True)
 
         if self.warp_test and warp_grid is not None:
             for (i, feat) in enumerate(features):
@@ -199,8 +238,11 @@ class DeformableDETR(nn.Module):
         # # DEBUG: save feature maps for debugging
         # feat0_after = features[0].tensors[0].mean(dim=0, keepdim=True)  # [1, H, W]
         # save_image(feat0_after, "debug/AFTER_feature_level_0.png", normalize=True)
-
-        # # # ================= exit for quick debug =================
+        # feat1_after = features[1].tensors[0].mean(dim=0, keepdim=True)  # [1, H, W]
+        # save_image(feat1_after, "debug/AFTER_feature_level_1.png", normalize=True)
+        # feat2_after = features[2].tensors[0].mean(dim=0, keepdim=True)  # [1, H, W]
+        # save_image(feat2_after, "debug/AFTER_feature_level_2.png", normalize=True)
+        # # # # ================= exit for quick debug =================
         # exit()
 
 
@@ -580,6 +622,7 @@ def build(args):
         with_box_refine=args.with_box_refine,
         two_stage=args.two_stage,
         warp_test=args.warp_test, # NOTE: add warp_test here.
+        warp_smooth_alpha=args.warp_smooth_alpha, # NOTE: add warp_smooth_alpha here.
     )
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))

@@ -13,6 +13,7 @@ def build(config: dict):
 
     # NOTE: warping-related code
     detr_args.warp_test = config.get("WARP_TEST", False)
+    detr_args.warp_smooth_alpha = config.get("WARP_SMOOTH_ALPHA", 0.0)
 
     # 1. backbone:
     detr_args.backbone = config["BACKBONE"]

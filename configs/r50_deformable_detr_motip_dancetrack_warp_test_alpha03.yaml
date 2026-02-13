@@ -1,0 +1,6 @@
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+WARP_TEST: True
+WARP_SMOOTH_ALPHA: 0.3
+
+OUTPUTS_DIR: /ssd0/shenzhen/Methods/MOTIP/outputs

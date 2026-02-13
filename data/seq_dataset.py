@@ -33,6 +33,15 @@ class SeqDataset(Dataset):
             v2.ToDtype(torch.float32, scale=True),
             v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
+
+        # NOTE: reset saliency smoothing state for new sequence
+        try:
+            from warp_utils.warp_pipeline import _PLAIN_KDEGRID_CACHE
+            _PLAIN_KDEGRID_CACHE[1]._sal_prev = None
+            print("[data/seq_dataset.py] Reset _PLAIN_KDEGRID_CACHE._sal_prev for new sequence.")
+        except:
+            pass
+
         return
 
     def __len__(self):
